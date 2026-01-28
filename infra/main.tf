@@ -20,7 +20,7 @@ resource "aws_cloudwatch_log_group" "lambda_log_group" {
 
 # Lambda Function
 resource "aws_lambda_function" "upload_processor" {
-  filename         = "lambda/upload-function.zip"
+  filename         = "../upload-lambda/src/main/upload-lambda.zip"
   function_name    = "upload-function"
   role            = "arn:aws:iam::961624804946:role/adm-role"
   handler         = "upload-function.lambda_handler"
@@ -28,7 +28,7 @@ resource "aws_lambda_function" "upload_processor" {
   timeout         = 900  # 15 minutos
   memory_size     = 2048 # 2GB
 
-  source_code_hash = filebase64sha256("upload-lambda/src/main/upload-lambda.zip")
+  source_code_hash = filebase64sha256("../upload-lambda/src/main/upload-lambda.zip")
 
   layers = [
     var.ffmpeg_layer_arn
