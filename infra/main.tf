@@ -22,7 +22,7 @@ resource "aws_cloudwatch_log_group" "lambda_log_group" {
 resource "aws_lambda_function" "upload_processor" {
   filename         = "../upload-lambda/src/main/upload-lambda.zip"
   function_name    = "upload-function"
-  role            = "arn:aws:iam::961624804946:role/adm-role"
+  role            = var.lambda_role_arn
   handler         = "upload-function.lambda_handler"
   runtime         = "python3.11"
   timeout         = 900  # 15 minutos
