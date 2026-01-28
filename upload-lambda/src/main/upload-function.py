@@ -66,10 +66,11 @@ def lambda_handler(event, context):
         frames = extrair_frames(video_path, tmp_dir)
 
         if not frames:
+            atualizar_registro_erro(table, email, upload_id)
             return responder(500, {'success': False, 'message': 'Nenhum frame extraído do vídeo'})
 
         zip_path, zip_nome = criar_arquivo_zip(frames, tmp_dir, timestamp)
-
+        
         s3_key = f'outputs/{zip_nome}'
         upload_para_s3(zip_path, S3_BUCKET, s3_key)
 
@@ -88,6 +89,10 @@ def lambda_handler(event, context):
 
     except Exception as e:
         logger.exception('Erro no processamento')
+        try:
+            atualizar_registro_erro(table, email, upload_id)
+        except Exception:
+            logger.error('Erro ao atualizar status de falha no DynamoDB')
         return responder(500, {'success': False, 'message': 'Erro interno: ' + str(e)})
     finally:
         limpar_diretorio_temporario(tmp_dir)
@@ -96,7 +101,7 @@ def lambda_handler(event, context):
 def extrair_dados_requisicao(event):
     headers = {k.lower(): v for k, v in (event.get('headers') or {}).items()}
     content_type = headers.get('content-type')
-
+    
     email = None
     nome_arquivo = None
     arquivo_bytes = None
@@ -115,7 +120,7 @@ def extrair_dados_requisicao(event):
         for part in msg.iter_parts():
             name = part.get_param('name', header='content-disposition')
             filename = part.get_filename()
-
+            
             if filename:
                 nome_arquivo = filename
                 arquivo_bytes = part.get_payload(decode=True)
@@ -138,7 +143,7 @@ def extrair_dados_requisicao(event):
 
     if not email or not nome_arquivo or not arquivo_bytes:
         raise ValueError('Parâmetros ausentes: email, filename e arquivo são obrigatórios')
-
+        
     return email, nome_arquivo, arquivo_bytes
 
 def validar_extensao(nome_arquivo):
@@ -163,27 +168,27 @@ def obter_caminho_ffmpeg():
     """Tenta localizar o executável do ffmpeg no sistema."""
     if shutil.which('ffmpeg'):
         return 'ffmpeg'
-
+    
     # Verifica locais comuns em ambientes Lambda (Layers ou enviado no pacote)
     caminhos_possiveis = ['/opt/bin/ffmpeg', '/var/task/ffmpeg', './ffmpeg']
     for path in caminhos_possiveis:
         if os.path.exists(path) and os.access(path, os.X_OK):
             return path
-
+            
     return 'ffmpeg' # Retorna o padrão, o que causará erro se não existir
 
 def extrair_frames(video_path, tmp_dir):
     frames_dir = os.path.join(tmp_dir, 'frames')
     os.makedirs(frames_dir, exist_ok=True)
     frame_pattern = os.path.join(frames_dir, 'frame_%04d.png')
-
+    
     ffmpeg_cmd = obter_caminho_ffmpeg()
     cmd = [ffmpeg_cmd, '-i', video_path, '-vf', 'fps=1', '-y', frame_pattern]
     proc = subprocess.run(cmd, capture_output=True)
-
+    
     if proc.returncode != 0:
         raise Exception(f"Erro no ffmpeg: {proc.stderr.decode(errors='ignore')}")
-
+        
     return sorted(glob.glob(os.path.join(frames_dir, '*.png')))
 
 def criar_arquivo_zip(frames, tmp_dir, timestamp):
@@ -204,6 +209,14 @@ def atualizar_registro_concluido(table, email, upload_id, s3_key, frame_count):
         UpdateExpression='SET s3_key = :k, #st = :s, frame_count = :fc',
         ExpressionAttributeNames={'#st': 'status'},
         ExpressionAttributeValues={':k': s3_key, ':s': 'Concluido', ':fc': frame_count}
+    )
+
+def atualizar_registro_erro(table, email, upload_id):
+    table.update_item(
+        Key={'idEmail': email, 'idUpload': upload_id},
+        UpdateExpression='SET #st = :s',
+        ExpressionAttributeNames={'#st': 'status'},
+        ExpressionAttributeValues={':s': 'Erro no processamento'}
     )
 
 def limpar_diretorio_temporario(tmp_dir):
