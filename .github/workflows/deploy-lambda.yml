@@ -14,16 +14,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Node.js 22.x
-        uses: actions/setup-node@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
         with:
-          node-version: '22.x'
-
-      # Adicione aqui comandos de build/teste para Node.js se necessário
+          python-version: '3.11'
 
       - name: Install dependencies
         working-directory: upload-lambda/src/main
-        run: pip install
+        run: |
+          pip install -r requirements.txt -t .
 
       - name: Zip Lambda function
         working-directory: upload-lambda/src/main
@@ -51,7 +50,7 @@ jobs:
 
       - name: Delete existing Lambda (if exists)
         run: |
-          aws lambda delete-function --function-name authorization_lambda || echo "Lambda not found, continuing"
+          aws lambda delete-function --function-name upload-function || echo "Lambda not found, continuing"
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
 
