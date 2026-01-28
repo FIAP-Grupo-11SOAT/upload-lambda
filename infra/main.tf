@@ -38,13 +38,6 @@ resource "aws_lambda_function" "upload_processor" {
     variables = {
       BUCKET   = "upload-bucket-11soat"
       TABLE    = "upload"
-      FFMPEG_PATH         = "/opt/bin/ffmpeg"
-      OPENCV_CACHE_DIR    = "/tmp"
-      AWS_REGION          = var.aws_region
-      ENVIRONMENT         = var.environment
-      LOG_LEVEL           = "INFO"
-      MAX_FILE_SIZE_MB    = "500"
-      ALLOWED_EXTENSIONS  = "mp4,avi,mov,mkv,jpg,jpeg,png,gif,webp"
     }
   }
 
