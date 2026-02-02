@@ -7,9 +7,9 @@ from unittest.mock import patch, MagicMock
 import importlib.util
 
 # Carrega o módulo dinamicamente.
-# Como estamos em 'tests/', precisamos voltar um nível e entrar em 'src/main'
+# Como estamos em 'src/main/tests/', precisamos apenas voltar um nível
 MODULE_FILE = 'upload-function.py'
-MODULE_PATH = os.path.join(os.path.dirname(__file__), '../src/main', MODULE_FILE)
+MODULE_PATH = os.path.join(os.path.dirname(__file__), '..', MODULE_FILE)
 
 spec = importlib.util.spec_from_file_location("upload_function", MODULE_PATH)
 upload_function = importlib.util.module_from_spec(spec)
