@@ -57,12 +57,16 @@ class TestUploadFunction(unittest.TestCase):
     @patch('upload_function.shutil.which')
     @patch('upload_function.glob.glob')
     @patch('upload_function.upload_para_s3')
-    def test_lambda_handler_sucesso(self, mock_upload_s3, mock_glob, mock_which, mock_run, mock_boto3):
+    @patch('upload_function.zipfile.ZipFile')
+    def test_lambda_handler_sucesso(self, mock_zip, mock_upload_s3, mock_glob, mock_which, mock_run, mock_boto3):
         """Testa o fluxo principal de sucesso da Lambda."""
         # Mock do ffmpeg e sistema de arquivos
         mock_which.return_value = '/usr/bin/ffmpeg'
         mock_run.return_value = MagicMock(returncode=0)
         mock_glob.return_value = ['/tmp/frame1.png', '/tmp/frame2.png']
+
+        # Mock do ZipFile para evitar erro de arquivo não encontrado ao tentar criar o zip
+        mock_zip.return_value.__enter__.return_value = MagicMock()
 
         # Mock do DynamoDB
         mock_table = MagicMock()
