@@ -24,6 +24,14 @@ jobs:
         run: |
           pip install -r requirements.txt -t .
 
+      - name: Install Test Dependencies
+        run: pip install boto3
+
+      - name: Run Unit Tests
+        working-directory: upload-lambda/src/main/tests
+        run: |
+          python -m unittest test_upload_function.py
+
       - name: Zip Lambda function
         working-directory: upload-lambda/src/main
         run: |
