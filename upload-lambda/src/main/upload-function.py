@@ -14,6 +14,7 @@ from email import policy
 from email.parser import BytesParser
 
 import boto3
+from botocore.exceptions import ClientError
 from uuid import uuid4
 from datetime import datetime, timezone
 
@@ -40,11 +41,12 @@ def lambda_handler(event, context):
         return responder(500, {'success': False, 'message': 'Variável de ambiente TABLE não configurada'})
 
     try:
-        email, nome_arquivo, arquivo_bytes = extrair_dados_requisicao(event)
+        email, nome_arquivo, arquivo_bytes, celular = extrair_dados_requisicao(event)
     except ValueError as e:
         return responder(400, {'success': False, 'message': str(e)})
 
     if not validar_extensao(nome_arquivo):
+        enviar_sms(celular, 'Formato de arquivo não suportado')
         return responder(400, {'success': False, 'message': 'Formato não suportado'})
 
     timestamp = time.strftime('%Y%m%d_%H%M%S')
@@ -67,6 +69,7 @@ def lambda_handler(event, context):
 
         if not frames:
             atualizar_registro_erro(table, email, upload_id)
+            enviar_sms(celular, 'Erro: Nenhum frame extraído do vídeo')
             return responder(500, {'success': False, 'message': 'Nenhum frame extraído do vídeo'})
 
         zip_path, zip_nome = criar_arquivo_zip(frames, tmp_dir, timestamp)
@@ -93,6 +96,7 @@ def lambda_handler(event, context):
             atualizar_registro_erro(table, email, upload_id)
         except Exception:
             logger.error('Erro ao atualizar status de falha no DynamoDB')
+        enviar_sms(celular, f'Erro no processamento: {str(e)}')
         return responder(500, {'success': False, 'message': 'Erro interno: ' + str(e)})
     finally:
         limpar_diretorio_temporario(tmp_dir)
@@ -103,6 +107,7 @@ def extrair_dados_requisicao(event):
     content_type = headers.get('content-type')
     
     email = None
+    celular = None
     nome_arquivo = None
     arquivo_bytes = None
 
@@ -126,6 +131,8 @@ def extrair_dados_requisicao(event):
                 arquivo_bytes = part.get_payload(decode=True)
             elif name == 'email':
                 email = part.get_payload(decode=True).decode('utf-8')
+            elif name == 'celular':
+                celular = part.get_payload(decode=True).decode('utf-8')
     else:
         try:
             body = json.loads(event.get('body') or '{}')
@@ -133,6 +140,7 @@ def extrair_dados_requisicao(event):
             raise ValueError('Corpo inválido: esperado JSON ou multipart/form-data')
 
         email = body.get('email')
+        celular = body.get('celular')
         nome_arquivo = body.get('filename')
         arquivo_b64 = body.get('arquivo')
         if arquivo_b64:
@@ -141,10 +149,10 @@ def extrair_dados_requisicao(event):
             except Exception:
                 raise ValueError('Arquivo base64 inválido')
 
-    if not email or not nome_arquivo or not arquivo_bytes:
-        raise ValueError('Parâmetros ausentes: email, filename e arquivo são obrigatórios')
+    if not email or not nome_arquivo or not arquivo_bytes or not celular:
+        raise ValueError('Parâmetros ausentes: email, celular, filename e arquivo são obrigatórios')
         
-    return email, nome_arquivo, arquivo_bytes
+    return email, nome_arquivo, arquivo_bytes, celular
 
 def validar_extensao(nome_arquivo):
     ext = Path(nome_arquivo).suffix.lower()
@@ -225,6 +233,28 @@ def limpar_diretorio_temporario(tmp_dir):
     except Exception:
         pass
 
+def enviar_sms(numero, mensagem):
+    # Inicializa o cliente SNS
+    sns = boto3.client('sns', region_name='us-east-1')
+
+    try:
+        # response = sns.publish(
+        #     PhoneNumber=numero,
+        #     Message=mensagem,
+        #     MessageAttributes={
+        #         'AWS.SNS.SMS.SenderID': {
+        #             'DataType': 'String',
+        #             'StringValue': 'Notificacao' # SenderID deve ter max 11 chars
+        #         },
+        #         'AWS.SNS.SMS.SMSType': {
+        #             'DataType': 'String',
+        #             'StringValue': 'Transactional'
+        #         }
+        #     }
+        # )
+        logger.info(f"SMS enviado! ID: {response['MessageId']}")
+    except ClientError as e:
+        logger.error(f"Erro ao enviar SMS: {e.response['Error']['Message']}")
 
 def responder(status_code, body_dict):
     return {

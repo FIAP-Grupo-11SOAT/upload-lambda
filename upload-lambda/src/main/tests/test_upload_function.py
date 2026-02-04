@@ -37,14 +37,16 @@ class TestUploadFunction(unittest.TestCase):
         event = {
             'body': json.dumps({
                 'email': 'teste@email.com',
+                'celular': '+5511999999999',
                 'filename': 'video.mp4',
                 'arquivo': base64.b64encode(b'conteudo_fake').decode('utf-8')
             })
         }
-        email, filename, content = upload_function.extrair_dados_requisicao(event)
+        email, filename, content, celular = upload_function.extrair_dados_requisicao(event)
         self.assertEqual(email, 'teste@email.com')
         self.assertEqual(filename, 'video.mp4')
         self.assertEqual(content, b'conteudo_fake')
+        self.assertEqual(celular, '+5511999999999')
 
     def test_extrair_dados_json_invalido(self):
         """Testa erro ao receber JSON inválido."""
@@ -58,7 +60,8 @@ class TestUploadFunction(unittest.TestCase):
     @patch('upload_function.glob.glob')
     @patch('upload_function.upload_para_s3')
     @patch('upload_function.zipfile.ZipFile')
-    def test_lambda_handler_sucesso(self, mock_zip, mock_upload_s3, mock_glob, mock_which, mock_run, mock_boto3):
+    @patch('upload_function.enviar_sms')
+    def test_lambda_handler_sucesso(self, mock_sms, mock_zip, mock_upload_s3, mock_glob, mock_which, mock_run, mock_boto3):
         """Testa o fluxo principal de sucesso da Lambda."""
         # Mock do ffmpeg e sistema de arquivos
         mock_which.return_value = '/usr/bin/ffmpeg'
@@ -75,6 +78,7 @@ class TestUploadFunction(unittest.TestCase):
         event = {
             'body': json.dumps({
                 'email': 'user@test.com',
+                'celular': '+5511999999999',
                 'filename': 'video.mp4',
                 'arquivo': base64.b64encode(b'video_bytes').decode('utf-8')
             })
@@ -100,11 +104,13 @@ class TestUploadFunction(unittest.TestCase):
         self.assertIn('BUCKET', json.loads(response['body'])['message'])
 
     @patch('upload_function.boto3')
-    def test_lambda_handler_extensao_nao_suportada(self, mock_boto3):
+    @patch('upload_function.enviar_sms')
+    def test_lambda_handler_extensao_nao_suportada(self, mock_sms, mock_boto3):
         """Testa rejeição de arquivo com extensão inválida."""
         event = {
             'body': json.dumps({
                 'email': 'user@test.com',
+                'celular': '+5511999999999',
                 'filename': 'virus.exe',
                 'arquivo': base64.b64encode(b'lixo').decode('utf-8')
             })
@@ -112,6 +118,7 @@ class TestUploadFunction(unittest.TestCase):
         response = upload_function.lambda_handler(event, None)
         self.assertEqual(response['statusCode'], 400)
         self.assertIn('Formato', json.loads(response['body'])['message'])
+        mock_sms.assert_called_once()
 
 if __name__ == '__main__':
     unittest.main()
