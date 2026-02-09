@@ -42,8 +42,7 @@ class TestUploadFunction(unittest.TestCase):
                 'arquivo': base64.b64encode(b'conteudo_fake').decode('utf-8')
             })
         }
-        email, filename, content, celular = upload_function.extrair_dados_requisicao(event)
-        self.assertEqual(email, 'teste@email.com')
+        filename, content, celular = upload_function.extrair_dados_requisicao(event)
         self.assertEqual(filename, 'video.mp4')
         self.assertEqual(content, b'conteudo_fake')
         self.assertEqual(celular, '+5511999999999')
@@ -54,6 +53,7 @@ class TestUploadFunction(unittest.TestCase):
         with self.assertRaises(ValueError):
             upload_function.extrair_dados_requisicao(event)
 
+    @patch('upload_function.autenticar_usuario')
     @patch('upload_function.boto3')
     @patch('upload_function.subprocess.run')
     @patch('upload_function.shutil.which')
@@ -61,8 +61,10 @@ class TestUploadFunction(unittest.TestCase):
     @patch('upload_function.upload_para_s3')
     @patch('upload_function.zipfile.ZipFile')
     @patch('upload_function.enviar_sms')
-    def test_lambda_handler_sucesso(self, mock_sms, mock_zip, mock_upload_s3, mock_glob, mock_which, mock_run, mock_boto3):
+    def test_lambda_handler_sucesso(self, mock_sms, mock_zip, mock_upload_s3, mock_glob, mock_which, mock_run, mock_boto3, mock_auth):
         """Testa o fluxo principal de sucesso da Lambda."""
+        mock_auth.return_value = ('user@test.com', None)
+
         # Mock do ffmpeg e sistema de arquivos
         mock_which.return_value = '/usr/bin/ffmpeg'
         mock_run.return_value = MagicMock(returncode=0)
@@ -103,10 +105,13 @@ class TestUploadFunction(unittest.TestCase):
         self.assertEqual(response['statusCode'], 500)
         self.assertIn('BUCKET', json.loads(response['body'])['message'])
 
+    @patch('upload_function.autenticar_usuario')
     @patch('upload_function.boto3')
     @patch('upload_function.enviar_sms')
-    def test_lambda_handler_extensao_nao_suportada(self, mock_sms, mock_boto3):
+    def test_lambda_handler_extensao_nao_suportada(self, mock_sms, mock_boto3, mock_auth):
         """Testa rejeição de arquivo com extensão inválida."""
+        mock_auth.return_value = ('user@test.com', None)
+
         event = {
             'body': json.dumps({
                 'email': 'user@test.com',

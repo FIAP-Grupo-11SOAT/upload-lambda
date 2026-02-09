@@ -43,16 +43,13 @@ def lambda_handler(event, context):
     if not TABLE_NAME:
         return responder(500, {'success': False, 'message': 'Variável de ambiente TABLE não configurada'})
 
-    email_autenticado = validar_jwt_cognito(event)
-    if not email_autenticado:
-        return responder(401, {'success': False, 'message': 'Não autorizado: Falha na validação do token'})
-
+    email, error_response = autenticar_usuario(event)
+    if error_response:
+        return error_response
     try:
-        email, nome_arquivo, arquivo_bytes, celular = extrair_dados_requisicao(event)
+        nome_arquivo, arquivo_bytes, celular = extrair_dados_requisicao(event)
     except ValueError as e:
         return responder(400, {'success': False, 'message': str(e)})
-
-    email = email_autenticado
 
     if not validar_extensao(nome_arquivo):
         enviar_sms(celular, 'Formato de arquivo não suportado')
@@ -115,7 +112,6 @@ def extrair_dados_requisicao(event):
     headers = {k.lower(): v for k, v in (event.get('headers') or {}).items()}
     content_type = headers.get('content-type')
     
-    email = None
     celular = None
     nome_arquivo = None
     arquivo_bytes = None
@@ -138,8 +134,6 @@ def extrair_dados_requisicao(event):
             if filename:
                 nome_arquivo = filename
                 arquivo_bytes = part.get_payload(decode=True)
-            elif name == 'email':
-                email = part.get_payload(decode=True).decode('utf-8')
             elif name == 'celular':
                 celular = part.get_payload(decode=True).decode('utf-8')
     else:
@@ -148,7 +142,6 @@ def extrair_dados_requisicao(event):
         except Exception:
             raise ValueError('Corpo inválido: esperado JSON ou multipart/form-data')
 
-        email = body.get('email')
         celular = body.get('celular')
         nome_arquivo = body.get('filename')
         arquivo_b64 = body.get('arquivo')
@@ -158,10 +151,10 @@ def extrair_dados_requisicao(event):
             except Exception:
                 raise ValueError('Arquivo base64 inválido')
 
-    if not email or not nome_arquivo or not arquivo_bytes or not celular:
-        raise ValueError('Parâmetros ausentes: email, celular, filename e arquivo são obrigatórios')
+    if not nome_arquivo or not arquivo_bytes or not celular:
+        raise ValueError('Parâmetros ausentes: celular, filename e arquivo são obrigatórios')
         
-    return email, nome_arquivo, arquivo_bytes, celular
+    return nome_arquivo, arquivo_bytes, celular
 
 def validar_extensao(nome_arquivo):
     ext = Path(nome_arquivo).suffix.lower()
@@ -273,53 +266,33 @@ def responder(status_code, body_dict):
     }
 
 
-def validar_jwt_cognito(event):
-    # 1. Configurações do Cognito (Substitua pelos seus dados)
-    DOMAIN = "hackaton-11soat-auth-v2.auth.us-east-1.amazoncognito.com"
-    CLIENT_ID = "458sg2qduaf2ssokfrpl40p80f"
-    REDIRECT_URI = "https://example.com/callback"
-    
-    params = event.get('queryStringParameters') or {}
-    code = params.get('code')
-    
-    if not code:
-        return None
+def autenticar_usuario(event):
+    headers = event.get('headers') or {}
+    auth_header = headers.get('Authorization') or headers.get('authorization')
 
-    # 3. Preparar a chamada para trocar o CODE por TOKENS
-    token_url = f"https://{DOMAIN}/oauth2/token"
-
-    data = {
-        'grant_type': 'authorization_code',
-        'client_id': CLIENT_ID,
-        'code': code,
-        'redirect_uri': REDIRECT_URI
-    }
-
-    encoded_data = urllib.parse.urlencode(data).encode('utf-8')
-    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    if not auth_header:
+        return None, responder(401, {'success': False, 'message': 'Token ausente'})
 
     try:
-        # 4. Fazer a requisição POST
-        req = urllib.request.Request(token_url, data=encoded_data, headers=headers)
-        with urllib.request.urlopen(req) as response:
-            res_body = response.read()
-            tokens = json.loads(res_body.decode('utf-8'))
+        id_token = auth_header.split(' ')[1]
+    except IndexError:
+        return None, responder(401, {'success': False, 'message': 'Formato de token inválido'})
 
-            # O 'id_token' contém os dados do perfil do usuário
-            id_token = tokens.get('id_token')
+    return validar_jwt(id_token), None
 
-            # 5. Decodificar o ID Token para ver os dados (Email, Sub, etc)
-            # O ID Token é um JWT. A parte do meio (índice 1) contém os dados.
-            payload_b64 = id_token.split('.')[1]
-            # Adiciona padding se necessário para o base64
-            payload_json = base64.b64decode(payload_b64 + '===').decode('utf-8')
-            user_data = json.loads(payload_json)
-            user_email = user_data.get('email')
-            logger.info(f"Email: {user_email}")
+def validar_jwt(id_token):
+    try:
+        # 5. Decodificar o ID Token para ver os dados (Email, Sub, etc)
+        # O ID Token é um JWT. A parte do meio (índice 1) contém os dados.
+        payload_b64 = id_token.split('.')[1]
+        # Adiciona padding se necessário para o base64
+        payload_json = base64.b64decode(payload_b64 + '===').decode('utf-8')
+        user_data = json.loads(payload_json)
+        user_email = user_data.get('email')
+        logger.info(f"Email: {user_email}")
 
-            return user_email
+        return user_email
 
-    except urllib.error.HTTPError as e:
-        error_details = e.read().decode()
-        logger.error(f"Erro detalhado do Cognito: {error_details}")
+    except Exception as e:
+        logger.error(f"Erro ao decodificar token: {e}")
         return None
